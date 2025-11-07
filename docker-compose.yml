@@ -1,0 +1,105 @@
+services:
+  # 1. Ollama 服務
+  ollama:
+    image: ollama/ollama
+    container_name: ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    networks:
+      - llama_net
+
+  # 2. 資料導入 (Ingestion) 任務
+  ingest-job:
+    build: ./rag_server
+    depends_on:
+      ollama:
+        condition: service_started
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+      - DB_PATH=/app/chroma_db
+      - EMBED_MODEL=mxbai-embed-large
+    volumes:
+      - ./rag_server/docs:/app/docs:ro
+      - chroma_db_data:/app/chroma_db
+    networks:
+      - llama_net
+    command: >
+      sh -c "
+        echo '等待 Ollama 伺服器上線 (http://ollama:11434)...'
+        until curl -s -f http://ollama:11434 > /dev/null; do
+          echo 'Ollama 尚未就緒... 5秒後重試'
+          sleep 5
+        done
+        echo 'Ollama 伺服器已上線。'
+
+        echo '檢查模型 llama3.2...'
+        if ! curl -s -f http://ollama:11434/api/tags | jq -e '.models | map(.name) | contains([\"llama3.2:latest\"])' > /dev/null; then
+          echo '模型 llama3.2 不存在，開始下載 (這可能需要幾分鐘)...'
+          curl -X POST http://ollama:11434/api/pull -d '{\"name\": \"llama3.2\", \"stream\": false}'
+          echo 'llama3.2 下載完成。'
+        else
+          echo 'llama3.2 模型已存在。'
+        fi
+
+        echo '檢查模型 mxbai-embed-large...'
+        if ! curl -s -f http://ollama:11434/api/tags | jq -e '.models | map(.name) | contains([\"mxbai-embed-large:latest\"])' > /dev/null; then
+          echo '模型 mxbai-embed-large 不存在，開始下載...'
+          curl -X POST http://ollama:11434/api/pull -d '{\"name\": \"mxbai-embed-large\", \"stream\": false}'
+          echo 'mxbai-embed-large 下載完成。'
+        else
+          echo 'mxbai-embed-large 模型已存在。'
+        fi
+
+        echo '所有模型均已就緒。'
+
+        echo '開始執行 python ingest.py...'
+        rm -rf $$DB_PATH/*
+        python ingest.py
+        echo 'ingest.py 執行完畢。'
+      "
+
+  # 3. Open WebUI 服務
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:main
+    container_name: open_webui
+    depends_on:
+      ingest-job: # 依賴 ingest-job 成功完成
+        condition: service_completed_successfully
+    ports:
+      - "3000:8080"
+    environment:
+      - 'OLLAMA_BASE_URL=http://ollama:11434'
+    volumes:
+      - open_webui_data:/app/backend/data
+    networks:
+      - llama_net
+
+  # 4. RAG
+  rag-backend:
+    build: ./rag_server
+    container_name: rag_backend
+    depends_on:
+      ingest-job: # 依賴 ingest-job 成功完成
+        condition: service_completed_successfully
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./rag_server/docs:/app/docs:ro
+      - chroma_db_data:/app/chroma_db
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+      - DB_PATH=/app/chroma_db
+    networks:
+      - llama_net
+    command: ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8000"]
+
+volumes:
+  ollama_data:
+  open_webui_data:
+  chroma_db_data:
+
+networks:
+  llama_net:
+    driver: bridge

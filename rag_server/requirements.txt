@@ -1,0 +1,10 @@
+langchain>=0.3.0
+langchain-core
+langchain-community
+langchain-ollama
+chromadb==0.4.16
+pypdf
+fastapi
+uvicorn[standard]
+pydantic==2.*
+onnxruntime==1.17.3
