@@ -5,14 +5,13 @@ Change directory to the root folder `Ollama_rag` and type `docker-compose up -d 
 **Make sure you are in the directory containing the `docker-compose.yml` file.**
 ```
 Ollama_rag/ 
-|- docker-compose.yml  
-|- rag_server/  
-    |- docs/  
-    |  |- data.pdf   
-    |  
-    |- requirements.txt  
-    |- ingest.py  
-    |- server.py
+├── docker-compose.yml  
+└── rag_server/  
+    ├── docs/  
+    │   └── data.pdf     
+    ├── requirements.txt  
+    ├── ingest.py  
+    └── server.py
 ```
 ***
 Setup
